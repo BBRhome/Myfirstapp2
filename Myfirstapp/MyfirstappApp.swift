@@ -223,7 +223,7 @@ struct ProfileView: View {
                         }
                         .navigationTitle("Профиль")
                     } label: {
-                        Label("Редактировать профиль", systemImage: "pencil")
+                        Label("Редактировать профиль", systemImage: "пїЅ")
                     }
 
                     if auth.isAuthenticated {
@@ -409,8 +409,9 @@ struct SignInView: View {
 
 // MARK: - Корневой контейнер
 struct RootView: View {
-    @StateObject private var store = TransactionStore(seedDemoData: true)
+    @StateObject private var store = TransactionStore(seedDemoData: false)
     @StateObject private var auth = AuthManager()
+    @AppStorage("firstCleanDone") private var firstCleanDone: Bool = false
 
     var body: some View {
         Group {
@@ -443,6 +444,13 @@ struct RootView: View {
             } else {
                 SignInView()
                     .environmentObject(auth)
+            }
+        }
+        .onAppear {
+            // Один раз очищаем, чтобы начать с нуля
+            if !firstCleanDone {
+                store.reset()
+                firstCleanDone = true
             }
         }
     }

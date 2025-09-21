@@ -27,6 +27,15 @@ final class TransactionStore: ObservableObject {
         add(tx)
     }
 
+    // Новый метод: полная очистка
+    func reset() {
+        transactions = []
+        let fm = FileManager.default
+        if fm.fileExists(atPath: fileURL.path) {
+            try? fm.removeItem(at: fileURL)
+        }
+    }
+
     // MARK: - Persistence
 
     private static func makeFileURL() -> URL {
