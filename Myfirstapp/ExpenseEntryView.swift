@@ -3,33 +3,55 @@ import SwiftUI
 struct ExpenseEntryView: View {
     @EnvironmentObject private var store: TransactionStore
 
+    // Режим: расход / доход
+    @State private var isIncome: Bool = false
+
+    // Поля ввода
     @State private var amountText: String = ""
     @State private var selectedCategory: Category? = allCategories.first
     @State private var note: String = ""
-    @State private var payment: String = "Карта"
+    @State private var payment: String = "Карта"       // для расхода
+    @State private var incomeSource: String = "Зарплата" // для дохода
     @State private var date: Date = .now
 
+    // Управление UI
     @FocusState private var isAmountFocused: Bool
     @State private var showDetails: Bool = false
 
+    // Текущий список категорий по режиму
+    private var currentCategories: [Category] {
+        isIncome ? incomeCategories : allCategories
+    }
+
+    // Валидация
     private var canSave: Bool {
-        canSaveExpense(amountText: amountText, categoryKey: selectedCategory?.key, isIncome: false)
+        canSaveExpense(amountText: amountText, categoryKey: selectedCategory?.key, isIncome: isIncome)
     }
 
     var body: some View {
         ZStack {
-            backgroundGradient().ignoresSafeArea()
+            // Фон
+            backgroundGradient()
+                .ignoresSafeArea()
 
+            // Содержимое
             VStack(spacing: 0) {
                 header()
 
-                // Категории сверху (без подписи под сеткой)
+                // Тумблер режимов
+                modeToggle()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+
+                // Категории сверху — по тапу открываем детали
                 HoneycombGrid(
-                    items: allCategories,
+                    items: currentCategories,
                     selected: selectedCategory,
                     select: { cat in
                         selectedCategory = cat
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        openDetailsWithFocus()
                     }
                 )
                 .padding(.horizontal, 12)
@@ -41,7 +63,7 @@ struct ExpenseEntryView: View {
                 Spacer(minLength: 0)
             }
 
-            // Кнопка-инициатор
+            // Кнопка-инициатор, когда деталей нет
             VStack {
                 Spacer()
                 if !showDetails {
@@ -52,8 +74,13 @@ struct ExpenseEntryView: View {
                 }
             }
 
-            // Детали снизу
+            // Диммер + Детали
             if showDetails {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture { closeDetails() }
+
                 VStack {
                     Spacer(minLength: 0)
                     detailCard()
@@ -76,13 +103,23 @@ struct ExpenseEntryView: View {
                 }
             }
         }
+        .onChange(of: isIncome) { _, newValue in
+            // При смене режима — сбросить категорию на первую подходящую
+            selectedCategory = (newValue ? incomeCategories : allCategories).first
+            // Сбросить поля источника/способа под режим
+            if newValue {
+                incomeSource = "Зарплата"
+            } else {
+                payment = "Карта"
+            }
+        }
     }
 
     // MARK: - Header
 
     private func header() -> some View {
         HStack {
-            Text("Траты")
+            Text(isIncome ? "Доход" : "Траты")
                 .font(.title2.bold())
                 .foregroundColor(.primary)
             Spacer()
@@ -107,22 +144,69 @@ struct ExpenseEntryView: View {
         .padding(.bottom, 6)
     }
 
+    // MARK: - Mode Toggle (Расход / Доход)
+
+    private func modeToggle() -> some View {
+        GeometryReader { geo in
+            let totalWidth = geo.size.width
+            let thumbWidth = (totalWidth - 4) / 2
+            ZStack(alignment: isIncome ? .trailing : .leading) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isIncome ? incomeGradient() : expenseGradient())
+                    .frame(width: thumbWidth, height: 32)
+                    .padding(4)
+                    .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 3)
+
+                HStack(spacing: 0) {
+                    segmentLabel(title: "Расход", systemImage: "arrow.up.right.circle.fill", active: !isIncome)
+                    segmentLabel(title: "Доход", systemImage: "arrow.down.left.circle.fill", active: isIncome)
+                }
+            }
+            .frame(height: 40)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                    isIncome.toggle()
+                }
+            }
+        }
+        .frame(height: 40)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Режим ввода")
+        .accessibilityValue(isIncome ? "Доход" : "Расход")
+    }
+
+    private func segmentLabel(title: String, systemImage: String, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+        }
+        .foregroundColor(active ? .white : .secondary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                isIncome = (title == "Доход")
+            }
+        }
+    }
+
     // MARK: - Amount Starter
 
     private func amountStarter() -> some View {
         Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                showDetails = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isAmountFocused = true
-            }
+            openDetailsWithFocus()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "plus.circle.fill")
+                Image(systemName: isIncome ? "plus.circle.fill" : "plus.circle.fill")
                     .font(.title2)
-                    .foregroundColor(.blue)
-                Text("Добавить сумму")
+                    .foregroundColor(isIncome ? .green : .blue)
+                Text(isIncome ? "Добавить доход" : "Добавить сумму")
                     .font(.headline)
                     .foregroundColor(.primary)
                 Spacer()
@@ -140,17 +224,43 @@ struct ExpenseEntryView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Добавить сумму")
+        .accessibilityLabel(isIncome ? "Добавить доход" : "Добавить сумму")
+    }
+
+    private func openDetailsWithFocus() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+            showDetails = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            isAmountFocused = true
+        }
     }
 
     // MARK: - Detail Card
 
     private func detailCard() -> some View {
-        VStack(spacing: 14) {
-            Capsule()
-                .fill(Color.primary.opacity(0.15))
-                .frame(width: 40, height: 5)
-                .padding(.top, 8)
+        VStack(spacing: 12) {
+            // Верхняя строка с хэндлом и крестиком
+            HStack {
+                Capsule()
+                    .fill(Color.primary.opacity(0.15))
+                    .frame(width: 40, height: 5)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityHidden(true)
+
+                Button {
+                    closeDetails()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 2)
+                .accessibilityLabel("Закрыть")
+            }
 
             // Сумма
             VStack(alignment: .leading, spacing: 6) {
@@ -176,7 +286,7 @@ struct ExpenseEntryView: View {
                 )
             }
 
-            // Дата и Способ оплаты
+            // Дата и Источник/Способ
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Дата")
@@ -190,17 +300,25 @@ struct ExpenseEntryView: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Способ")
+                    Text(isIncome ? "Источник" : "Способ")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Menu {
-                        Button("Карта") { payment = "Карта" }
-                        Button("Наличные") { payment = "Наличные" }
-                        Button("Счёт") { payment = "Счёт" }
+                        if isIncome {
+                            Button("Зарплата") { incomeSource = "Зарплата" }
+                            Button("Бонус") { incomeSource = "Бонус" }
+                            Button("Фриланс") { incomeSource = "Фриланс" }
+                            Button("Инвест.") { incomeSource = "Инвест." }
+                            Button("Другое") { incomeSource = "Другое" }
+                        } else {
+                            Button("Карта") { payment = "Карта" }
+                            Button("Наличные") { payment = "Наличные" }
+                            Button("Счёт") { payment = "Счёт" }
+                        }
                     } label: {
                         HStack {
-                            Image(systemName: paymentIcon())
-                            Text(payment)
+                            Image(systemName: isIncome ? "arrow.down.left.circle.fill" : paymentIcon())
+                            Text(isIncome ? incomeSource : payment)
                                 .font(.body.weight(.semibold))
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down")
@@ -223,7 +341,7 @@ struct ExpenseEntryView: View {
                 Text("Заметка")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("Комментарий", text: $note)
+                TextField(isIncome ? "Например: зарплата, бонус…" : "Комментарий", text: $note)
                     .textInputAutocapitalization(.sentences)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -242,7 +360,7 @@ struct ExpenseEntryView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(buttonGradient())
+                .background(isIncome ? incomeGradient() : expenseGradient())
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
@@ -252,7 +370,7 @@ struct ExpenseEntryView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14 + bottomSafeInset())
-        .padding(.top, 10)
+        .padding(.top, 6)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -283,6 +401,22 @@ struct ExpenseEntryView: View {
         }
     }
 
+    private func expenseGradient() -> LinearGradient {
+        LinearGradient(
+            colors: [Color.blue.opacity(0.95), Color.purple.opacity(0.95)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func incomeGradient() -> LinearGradient {
+        LinearGradient(
+            colors: [Color.green.opacity(0.95), Color.teal.opacity(0.95)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     private func backgroundGradient() -> LinearGradient {
         let light = [
             Color(red: 0.96, green: 0.97, blue: 1.00),
@@ -296,14 +430,6 @@ struct ExpenseEntryView: View {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    private func buttonGradient() -> LinearGradient {
-        LinearGradient(
-            colors: [Color.blue.opacity(0.95), Color.purple.opacity(0.95)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
     private func bottomSafeInset() -> CGFloat {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -312,23 +438,31 @@ struct ExpenseEntryView: View {
             .safeAreaInsets.bottom ?? 0
     }
 
+    // MARK: - Save
+
     private func save() {
         guard let amount = parseAmount(amountText), amount > 0 else { return }
+        let signedAmount = isIncome ? abs(amount) : -abs(amount)
         let tx = Transaction(
             date: date,
-            amount: -abs(amount),
+            amount: signedAmount,
             categoryKey: selectedCategory?.key,
             note: note.isEmpty ? nil : note,
-            payment: payment.isEmpty ? nil : payment
+            payment: isIncome ? (incomeSource.isEmpty ? nil : incomeSource) : (payment.isEmpty ? nil : payment)
         )
         store.add(tx)
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 
+        // Сброс и возврат к категориям
         amountText = ""
         note = ""
-        payment = "Карта"
-        selectedCategory = allCategories.first
+        if isIncome {
+            incomeSource = "Зарплата"
+        } else {
+            payment = "Карта"
+        }
+        selectedCategory = currentCategories.first
         closeDetails()
     }
 }

@@ -432,6 +432,12 @@ struct RootView: View {
                         CashbackView()
                     }
                     .tabItem { Label("Кэшбэк", systemImage: "giftcard.fill") }
+
+                    NavigationStack {
+                        ProfileView()
+                    }
+                    .environmentObject(auth)
+                    .tabItem { Label("Профиль", systemImage: "person.crop.circle") }
                 }
                 .environmentObject(auth)
             } else {
